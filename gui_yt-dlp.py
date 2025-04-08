@@ -11,8 +11,8 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                             QGroupBox, QTextEdit, QFileDialog, QMessageBox, QProgressDialog,
                             QRadioButton, QButtonGroup, QFormLayout, QMenuBar, QMenu, QAction,
                             QDialog, QPlainTextEdit, QTableWidget, QTableWidgetItem,
-                            QDialogButtonBox, QHeaderView)
-from PyQt5.QtCore import QThread, pyqtSignal, Qt, QSettings, QUrl
+                            QDialogButtonBox, QHeaderView, QStatusBar)
+from PyQt5.QtCore import QThread, pyqtSignal, Qt, QSettings, QUrl, QTimer
 from PyQt5.QtGui import QDesktopServices, QIcon
 
 # Проверка зависимостей
@@ -344,11 +344,13 @@ class DownloadThread(QThread):
         self.url = url
         self._is_running = True
         self.process = None
+        self.log_buffer = []  # Буфер для хранения логов
+        self.buffer_lock = False  # Флаг блокировки буфера
 
     def run(self):
         try:
             cmd = [ConfigManager.get_ytdlp_path(), "--config-location", ConfigManager.CONFIG_FILE, self.url]
-            self.output_received.emit(f"Запуск команды: {' '.join(cmd)}\n")
+            self.add_to_buffer(f"Запуск команды: {' '.join(cmd)}\n")
 
             self.process = subprocess.Popen(
                 cmd,
@@ -364,7 +366,7 @@ class DownloadThread(QThread):
                 if output == '' and self.process.poll() is not None:
                     break
                 if output:
-                    self.output_received.emit(output.strip())
+                    self.add_to_buffer(output.strip())
 
             return_code = self.process.wait()
             success = return_code == 0
@@ -373,8 +375,18 @@ class DownloadThread(QThread):
             ConfigManager.log_download(self.url, success)
 
         except Exception as e:
+            self.add_to_buffer(f"Исключение: {str(e)}")
             self.finished.emit(False, f"Исключение: {str(e)}")
             ConfigManager.log_download(self.url, False)
+
+    def add_to_buffer(self, message):
+        """Добавляет сообщение в буфер логов."""
+        while self.buffer_lock:  # Ждем, если буфер заблокирован
+            QThread.msleep(10)
+        self.buffer_lock = True
+        self.log_buffer.append(message)
+        self.buffer_lock = False
+        self.output_received.emit("")  # Сигнализируем о новом сообщении
 
     def stop(self):
         """Останавливает процесс загрузки."""
@@ -386,6 +398,12 @@ class YTDLPGUI(QMainWindow):
     def __init__(self):
         super().__init__()
         ConfigManager.init_config()
+        
+        # Настройка статус-бара
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self.status_bar.showMessage("Готов к работе")
+        
         self.check_ytdlp_available()
         self.setup_ui()
         self.load_config()
@@ -394,18 +412,33 @@ class YTDLPGUI(QMainWindow):
         self.settings = QSettings(ConfigManager.SETTINGS_FILE, QSettings.IniFormat)
         self.load_gui_settings()
 
+        # Таймер для обновления консоли
+        self.console_update_timer = QTimer(self)
+        self.console_update_timer.setInterval(100)  # Обновляем каждые 100 мс
+        self.console_update_timer.timeout.connect(self.update_console)
+        self.pending_updates = False  # Флаг наличия обновлений
+
+    def update_console(self):
+        """Обновляет консоль из буфера."""
+        if hasattr(self, 'thread') and self.thread and not self.thread.buffer_lock:
+            self.thread.buffer_lock = True
+            if self.thread.log_buffer:
+                self.console_output.append('\n'.join(self.thread.log_buffer))
+                self.thread.log_buffer.clear()
+                # Прокручиваем вниз
+                self.console_output.verticalScrollBar().setValue(
+                    self.console_output.verticalScrollBar().maximum()
+                )
+            self.thread.buffer_lock = False
+            self.pending_updates = False
+        elif self.pending_updates:
+            self.pending_updates = False
+
     def check_ytdlp_available(self):
         """Проверяет наличие yt-dlp и предлагает скачать, если его нет."""
         if not ConfigManager.check_ytdlp_exists():
-            reply = QMessageBox.question(
-                self,
-                "yt-dlp не найден",
-                "yt-dlp не найден в папке с программой. Скачать последнюю версию?",
-                QMessageBox.Yes | QMessageBox.No
-            )
-
-            if reply == QMessageBox.Yes:
-                self.download_ytdlp()
+            self.status_bar.showMessage("yt-dlp не найден. Скачивание...")
+            self.download_ytdlp()
 
     def download_ytdlp(self):
         """Скачивает yt-dlp."""
@@ -416,7 +449,7 @@ class YTDLPGUI(QMainWindow):
         destination = ConfigManager.get_ytdlp_path()
 
         progress_dialog = QProgressDialog("Загрузка yt-dlp...", "Отмена", 0, 100, self)
-        progress_dialog.setWindowTitle("Загрузка")
+        progress_dialog.setWindowTitle("Загрузка yt-dlp")
         progress_dialog.setWindowModality(Qt.WindowModal)
         progress_dialog.setAutoClose(True)
 
@@ -437,16 +470,18 @@ class YTDLPGUI(QMainWindow):
         if success:
             if os.name != 'nt':
                 os.chmod(ConfigManager.get_ytdlp_path(), 0o755)
-            QMessageBox.information(self, "Успех", "yt-dlp успешно загружен!")
+            self.status_bar.showMessage("yt-dlp успешно загружен!", 5000)
         else:
-            QMessageBox.critical(self, "Ошибка", message)
+            self.status_bar.showMessage(f"Ошибка загрузки: {message}", 5000)
 
     def check_for_updates(self):
         """Проверяет наличие обновлений yt-dlp."""
         current_version = ConfigManager.get_ytdlp_version()
         if not current_version:
-            QMessageBox.warning(self, "Ошибка", "Не удалось определить текущую версию yt-dlp")
+            self.status_bar.showMessage("Не удалось определить текущую версию yt-dlp", 5000)
             return
+
+        self.status_bar.showMessage("Проверка обновлений...", 3000)
 
         self.update_checker = UpdateChecker()
         self.update_checker.finished.connect(
@@ -455,12 +490,10 @@ class YTDLPGUI(QMainWindow):
         )
         self.update_checker.start()
 
-        QMessageBox.information(self, "Проверка обновлений", "Идет проверка обновлений...")
-
     def on_update_check_finished(self, success, message, current_version, latest_version):
         """Обработчик завершения проверки обновлений."""
         if not success:
-            QMessageBox.warning(self, "Ошибка", message)
+            self.status_bar.showMessage(f"Ошибка проверки обновлений: {message}", 5000)
             return
 
         if latest_version and latest_version != current_version:
@@ -476,11 +509,7 @@ class YTDLPGUI(QMainWindow):
             if reply == QMessageBox.Yes:
                 self.download_ytdlp()
         else:
-            QMessageBox.information(
-                self,
-                "Проверка обновлений",
-                f"У вас установлена последняя версия yt-dlp: {current_version}"
-            )
+            self.status_bar.showMessage(f"Установлена последняя версия yt-dlp: {current_version}", 5000)
 
     def setup_ui(self):
         self.setWindowTitle("yt-dlp GUI")
@@ -772,9 +801,11 @@ class YTDLPGUI(QMainWindow):
 
         config_text = "\n".join(config_lines)
         if ConfigManager.save_config(config_text):
-            QMessageBox.information(self, "Успех", "Конфигурация успешно сохранена")
+            self.status_bar.showMessage("Конфигурация успешно сохранена", 3000)
+            return True
         else:
-            QMessageBox.warning(self, "Ошибка", "Не удалось сохранить конфигурацию")
+            self.status_bar.showMessage("Не удалось сохранить конфигурацию", 5000)
+            return False
 
     def set_proxy_enabled(self, enabled):
         """Включает или отключает элементы управления прокси."""
@@ -793,8 +824,9 @@ class YTDLPGUI(QMainWindow):
         if path:
             if os.access(path, os.W_OK):
                 self.path_input.setText(path)
+                self.status_bar.showMessage(f"Выбрана папка: {path}", 3000)
             else:
-                QMessageBox.warning(self, "Ошибка", "Нет прав на запись в выбранную папку")
+                self.status_bar.showMessage("Нет прав на запись в выбранную папку", 5000)
 
     def browse_cookies(self):
         """Открывает диалог выбора файла cookies."""
@@ -803,25 +835,31 @@ class YTDLPGUI(QMainWindow):
         )
         if file:
             self.cookies_file_input.setText(file)
+            self.status_bar.showMessage(f"Выбран файл cookies: {file}", 3000)
 
     def start_download(self):
         """Запускает процесс загрузки видео."""
         url = self.url_input.text().strip()
         if not url or not re.match(r'^https?://', url):
-            QMessageBox.critical(self, "Ошибка", "Введите корректный URL (начинающийся с http:// или https://)")
+            self.status_bar.showMessage("Введите корректный URL (начинающийся с http:// или https://)", 5000)
             return
 
         if not ConfigManager.check_ytdlp_exists():
-            QMessageBox.critical(self, "Ошибка", "yt-dlp не найден. Скачайте его через меню 'Инструменты'")
+            self.status_bar.showMessage("yt-dlp не найден. Скачайте его через меню 'Инструменты'", 5000)
             return
 
-        self.save_config()
+        if self.save_config():
+            self.status_bar.showMessage("Настройки сохранены. Начинаю загрузку...", 3000)
+        else:
+            return
 
         self.console_output.clear()
         self.toggle_controls(False)
+        
+        self.console_update_timer.start()
 
         self.thread = DownloadThread(url)
-        self.thread.output_received.connect(self.console_output.append)
+        self.thread.output_received.connect(lambda: setattr(self, 'pending_updates', True))
         self.thread.finished.connect(self.download_finished)
         self.thread.start()
 
@@ -831,16 +869,22 @@ class YTDLPGUI(QMainWindow):
             self.thread.stop()
             self.console_output.append("\nЗагрузка отменена пользователем\n")
             self.toggle_controls(True)
+            self.console_update_timer.stop()
+            self.status_bar.showMessage("Загрузка отменена", 3000)
 
     def download_finished(self, success, message):
         """Обрабатывает завершение загрузки."""
+        QTimer.singleShot(200, self.console_update_timer.stop)
+        
+        self.update_console()
+        
         self.console_output.append(f"\n{message}\n")
         self.toggle_controls(True)
 
         if success:
-            QMessageBox.information(self, "Успех", "Загрузка завершена успешно!")
+            self.status_bar.showMessage("Загрузка завершена успешно!", 5000)
         else:
-            QMessageBox.warning(self, "Ошибка", message)
+            self.status_bar.showMessage(f"Ошибка загрузки: {message}", 5000)
 
     def toggle_controls(self, enabled):
         """Включает или отключает элементы управления GUI во время загрузки."""
@@ -870,8 +914,9 @@ class YTDLPGUI(QMainWindow):
         """Открывает файл логов."""
         if os.path.exists(ConfigManager.LOG_FILE):
             QDesktopServices.openUrl(QUrl.fromLocalFile(ConfigManager.LOG_FILE))
+            self.status_bar.showMessage("Файл лога открыт", 3000)
         else:
-            QMessageBox.warning(self, "Ошибка", "Файл лога не найден")
+            self.status_bar.showMessage("Файл лога не найден", 5000)
 
     def export_config(self):
         """Экспортирует текущую конфигурацию в файл."""
@@ -883,9 +928,9 @@ class YTDLPGUI(QMainWindow):
                 with open(ConfigManager.CONFIG_FILE, 'r', encoding='utf-8') as src, \
                      open(file, 'w', encoding='utf-8') as dst:
                     dst.write(src.read())
-                QMessageBox.information(self, "Успех", "Настройки успешно экспортированы")
+                self.status_bar.showMessage("Настройки успешно экспортированы", 5000)
             except Exception as e:
-                QMessageBox.critical(self, "Ошибка", f"Не удалось экспортировать настройки: {str(e)}")
+                self.status_bar.showMessage(f"Не удалось экспортировать настройки: {str(e)}", 5000)
 
     def import_config(self):
         """Импортирует конфигурацию из файла."""
@@ -898,9 +943,9 @@ class YTDLPGUI(QMainWindow):
                      open(ConfigManager.CONFIG_FILE, 'w', encoding='utf-8') as dst:
                     dst.write(src.read())
                 self.load_config()
-                QMessageBox.information(self, "Успех", "Настройки успешно импортированы")
+                self.status_bar.showMessage("Настройки успешно импортированы", 5000)
             except Exception as e:
-                QMessageBox.critical(self, "Ошибка", f"Не удалось импортировать настройки: {str(e)}")
+                self.status_bar.showMessage(f"Не удалось импортировать настройки: {str(e)}", 5000)
 
     def copy_command_line(self):
         """Копирует командную строку в буфер обмена."""
@@ -911,7 +956,7 @@ class YTDLPGUI(QMainWindow):
         clipboard = QApplication.clipboard()
         clipboard.setText(cmd_text)
 
-        QMessageBox.information(self, "Скопировано", "Команда скопирована в буфер обмена")
+        self.status_bar.showMessage("Команда скопирована в буфер обмена", 3000)
 
     def reset_settings(self):
         """Сбрасывает настройки до значений по умолчанию."""
@@ -926,17 +971,19 @@ class YTDLPGUI(QMainWindow):
                 with open(ConfigManager.CONFIG_FILE, 'w', encoding='utf-8') as f:
                     f.write(ConfigManager.DEFAULT_CONFIG)
                 self.load_config()
-                QMessageBox.information(self, "Успех", "Настройки сброшены к значениям по умолчанию")
+                self.status_bar.showMessage("Настройки сброшены к значениям по умолчанию", 5000)
             except Exception as e:
-                QMessageBox.critical(self, "Ошибка", f"Не удалось сбросить настройки: {str(e)}")
+                self.status_bar.showMessage(f"Не удалось сбросить настройки: {str(e)}", 5000)
 
     def show_debug_console(self):
         """Показывает консоль отладки."""
         self.debug_console.show()
+        self.status_bar.showMessage("Открыта консоль отладки", 3000)
 
     def open_documentation(self):
         """Открывает документацию в браузере."""
         QDesktopServices.openUrl(QUrl("https://github.com/yt-dlp/yt-dlp"))
+        self.status_bar.showMessage("Открыта документация в браузере", 3000)
 
     def show_about(self):
         """Показывает диалог 'О программе'."""
