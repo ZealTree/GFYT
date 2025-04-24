@@ -604,22 +604,22 @@ class YTDLPGUI(QMainWindow):
         
         self.no_overwrite_action = QAction("Не перезаписывать файлы", advanced_menu, checkable=True)
         self.no_overwrite_action.setChecked(self.no_overwrite_check.isChecked())
-        self.no_overwrite_action.toggled.connect(self.no_overwrite_check.setChecked)
+        self.no_overwrite_action.toggled.connect(lambda checked: self.update_check_state(self.no_overwrite_check, checked))
         advanced_menu.addAction(self.no_overwrite_action)
         
         self.sponsorblock_action = QAction("Удалять спонсорские блоки", advanced_menu, checkable=True)
         self.sponsorblock_action.setChecked(self.sponsorblock_check.isChecked())
-        self.sponsorblock_action.toggled.connect(self.sponsorblock_check.setChecked)
+        self.sponsorblock_action.toggled.connect(lambda checked: self.update_check_state(self.sponsorblock_check, checked))
         advanced_menu.addAction(self.sponsorblock_action)
         
         self.metadata_action = QAction("Добавлять метаданные", advanced_menu, checkable=True)
         self.metadata_action.setChecked(self.metadata_check.isChecked())
-        self.metadata_action.toggled.connect(self.metadata_check.setChecked)
+        self.metadata_action.toggled.connect(lambda checked: self.update_check_state(self.metadata_check, checked))
         advanced_menu.addAction(self.metadata_action)
         
         self.thumbnail_action = QAction("Встраивать миниатюру", advanced_menu, checkable=True)
         self.thumbnail_action.setChecked(self.thumbnail_check.isChecked())
-        self.thumbnail_action.toggled.connect(self.thumbnail_check.setChecked)
+        self.thumbnail_action.toggled.connect(lambda checked: self.update_check_state(self.thumbnail_check, checked))
         advanced_menu.addAction(self.thumbnail_action)
         
         # Прокси (радио-кнопки)
@@ -675,6 +675,10 @@ class YTDLPGUI(QMainWindow):
         about_action = QAction("О программе", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
+
+    def update_check_state(self, checkbox, checked):
+        checkbox.setChecked(checked)
+        self.save_config()
 
     def change_setting(self, setting_type):
         if setting_type == "path":
@@ -873,42 +877,46 @@ class YTDLPGUI(QMainWindow):
             self.thumbnail_check.setChecked(False)
             self.proxy_none_rb.setChecked(True)
             self.cookies_none_rb.setChecked(True)
-            return
-
-        params = ConfigManager.parse_config(config_text)
-
-        self.template_input.setText(params['output'])
-        self.path_input.setText(params['paths'])
-        self.merge_combo.setCurrentText(params['merge_format'])
-
-        if params['proxy']:
-            self.proxy_use_rb.setChecked(True)
-            if '://' in params['proxy']:
-                proto, addr = params['proxy'].split('://')
-                self.proxy_type_combo.setCurrentText(proto)
-                self.proxy_address_input.setText(addr)
         else:
-            self.proxy_none_rb.setChecked(True)
+            params = ConfigManager.parse_config(config_text)
+            self.template_input.setText(params['output'])
+            self.path_input.setText(params['paths'])
+            self.merge_combo.setCurrentText(params['merge_format'])
 
-        if params['cookies']:
-            self.cookies_file_rb.setChecked(True)
-            self.cookies_file_input.setText(params['cookies'])
-        elif params['cookies_from_browser']:
-            self.cookies_browser_rb.setChecked(True)
-            if ':' in params['cookies_from_browser']:
-                browser, profile = params['cookies_from_browser'].split(':', 1)
-                self.browser_combo.setCurrentText(browser)
-                self.browser_profile_input.setText(profile)
+            if params['proxy']:
+                self.proxy_use_rb.setChecked(True)
+                if '://' in params['proxy']:
+                    proto, addr = params['proxy'].split('://')
+                    self.proxy_type_combo.setCurrentText(proto)
+                    self.proxy_address_input.setText(addr)
             else:
-                self.browser_combo.setCurrentText(params['cookies_from_browser'])
-                self.browser_profile_input.clear()
-        else:
-            self.cookies_none_rb.setChecked(True)
+                self.proxy_none_rb.setChecked(True)
 
-        self.no_overwrite_check.setChecked(params['no_overwrites'])
-        self.sponsorblock_check.setChecked(params['sponsorblock_remove'])
-        self.metadata_check.setChecked(params['add_metadata'])
-        self.thumbnail_check.setChecked(params['embed_thumbnail'])
+            if params['cookies']:
+                self.cookies_file_rb.setChecked(True)
+                self.cookies_file_input.setText(params['cookies'])
+            elif params['cookies_from_browser']:
+                self.cookies_browser_rb.setChecked(True)
+                if ':' in params['cookies_from_browser']:
+                    browser, profile = params['cookies_from_browser'].split(':', 1)
+                    self.browser_combo.setCurrentText(browser)
+                    self.browser_profile_input.setText(profile)
+                else:
+                    self.browser_combo.setCurrentText(params['cookies_from_browser'])
+                    self.browser_profile_input.clear()
+            else:
+                self.cookies_none_rb.setChecked(True)
+
+            self.no_overwrite_check.setChecked(params['no_overwrites'])
+            self.sponsorblock_check.setChecked(params['sponsorblock_remove'])
+            self.metadata_check.setChecked(params['add_metadata'])
+            self.thumbnail_check.setChecked(params['embed_thumbnail'])
+
+        # Синхронизация действий меню с чекбоксами
+        self.no_overwrite_action.setChecked(self.no_overwrite_check.isChecked())
+        self.sponsorblock_action.setChecked(self.sponsorblock_check.isChecked())
+        self.metadata_action.setChecked(self.metadata_check.isChecked())
+        self.thumbnail_action.setChecked(self.thumbnail_check.isChecked())
 
     def save_config(self):
         config_lines = []
