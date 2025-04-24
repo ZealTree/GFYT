@@ -94,12 +94,6 @@ jobs:
           name: gui_for_yt-dlp_v${{ env.VERSION }}_${{ matrix.os_suffix }}
           path: dist/gui_for_yt-dlp_v${{ env.VERSION }}_${{ matrix.os_suffix }}*
 
-      - name: Update README with version
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          python update_readme.py
-        shell: bash
-
       - name: Create Release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
@@ -111,14 +105,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Bump version and update README
+      - name: Bump version
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           python bump_version.py
-          python update_readme.py
           git config --global user.name 'GitHub Actions'
           git config --global user.email 'actions@github.com'
-          git add version.txt README.MD
-          git commit -m "Bump version to $(cat version.txt) and update README"
+          git add version.txt
+          git commit -m "Bump version to $(cat version.txt)"
           git push
         shell: bash
