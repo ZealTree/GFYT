@@ -84,6 +84,7 @@ jobs:
                       --add-data "assets/icon.ico${{ matrix.os == 'windows-latest' && ';' || ':' }}assets" \
                       --add-data "version.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}." \
                       --noconfirm \
+                      --noconsole \
                       --upx-dir ${{ matrix.os == 'windows-latest' && 'C:\upx\upx-4.2.4-win64' || '/usr/bin' }} \
                       gui_yt-dlp.py
         shell: bash
