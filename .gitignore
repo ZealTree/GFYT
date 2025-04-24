@@ -4,6 +4,7 @@ __pycache__/
 *.spec
 build/
 dist/
+pycache/
 version_info.txt
 yt-dlp
 yt-dlp-gui.log
