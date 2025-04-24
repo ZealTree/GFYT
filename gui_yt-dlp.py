@@ -307,7 +307,7 @@ class OutputSettingsDialog(QDialog):
         layout.addWidget(self.merge_combo)
 
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        button_box.accepted.connect(self.accept)
+        button_box.accepted.connect(self.on_accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
 
@@ -330,6 +330,10 @@ class OutputSettingsDialog(QDialog):
         self.parent.path_input.setText(self.path_input.text())
         self.parent.template_input.setText(self.template_input.text())
         self.parent.merge_combo.setCurrentText(self.merge_combo.currentText())
+
+    def on_accept(self):
+        self.save()
+        self.accept()
 
 class DownloadThread(QThread):
     output_received = pyqtSignal(str)
@@ -388,6 +392,18 @@ class DownloadThread(QThread):
         if self.process:
             self.process.terminate()
 
+class AboutDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("О программе")
+        layout = QVBoxLayout()
+        label = QLabel("yt-dlp GUI\nВерсия 1.0\nГрафический интерфейс для yt-dlp")
+        layout.addWidget(label)
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        button_box.accepted.connect(self.accept)
+        layout.addWidget(button_box)
+        self.setLayout(layout)
+
 class YTDLPGUI(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -405,7 +421,6 @@ class YTDLPGUI(QMainWindow):
         self.console_update_timer = QTimer(self)
         self.console_update_timer.setInterval(100)
         self.console_update_timer.timeout.connect(self.update_console)
-        self.pending_updates = False
 
         self.url_input.returnPressed.connect(self.start_download)
         self.paste_btn.setShortcut("Ctrl+V")
@@ -445,9 +460,6 @@ class YTDLPGUI(QMainWindow):
                     self.console_output.verticalScrollBar().maximum()
                 )
             self.thread.buffer_lock = False
-            self.pending_updates = False
-        elif self.pending_updates:
-            self.pending_updates = False
 
     def check_ytdlp_available(self):
         if not ConfigManager.check_ytdlp_exists():
@@ -668,8 +680,11 @@ class YTDLPGUI(QMainWindow):
         if setting_type == "path":
             path = QFileDialog.getExistingDirectory(self, "Выберите папку для сохранения", self.path_input.text())
             if path:
-                self.path_input.setText(path)
-                self.save_config()
+                if os.access(path, os.W_OK):
+                    self.path_input.setText(path)
+                    self.save_config()
+                else:
+                    QMessageBox.warning(self, "Ошибка", "Нет прав на запись в выбранную папку")
         elif setting_type == "template":
             dialog = TemplateEditorDialog(self.template_input.text(), self)
             if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -953,7 +968,7 @@ class YTDLPGUI(QMainWindow):
         self.console_update_timer.start()
 
         self.thread = DownloadThread(url)
-        self.thread.output_received.connect(lambda: setattr(self, 'pending_updates', True))
+        self.thread.output_received.connect(self.update_console)
         self.thread.finished.connect(self.download_finished)
         self.thread.start()
 
@@ -1044,7 +1059,6 @@ class YTDLPGUI(QMainWindow):
                 self.status_bar.showMessage("Настройки сброшены к значениям по умолчанию", 5000)
             except Exception as e:
                 self.status_bar.showMessage(f"Не удалось сбросить настройки: {str(e)}", 5000)
-
 
     def open_documentation(self):
         QDesktopServices().openUrl(QUrl("https://github.com/yt-dlp/yt-dlp"))
