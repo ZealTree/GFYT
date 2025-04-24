@@ -21,6 +21,13 @@ YTDLP_DOWNLOAD_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/
 USER_AGENT = "yt-dlp-gui/1.0"
 SUPPORTED_BROWSERS = ["brave", "chrome", "firefox", "vivaldi"]
 
+def get_version():
+    try:
+        with open("version.txt", "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return "1.0.0"  # Fallback version
+
 class DownloaderThread(QThread):
     progress = pyqtSignal(int)
     finished = pyqtSignal(bool, str)
@@ -397,7 +404,7 @@ class AboutDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("О программе")
         layout = QVBoxLayout()
-        label = QLabel("yt-dlp GUI\nВерсия 1.0\nГрафический интерфейс для yt-dlp")
+        label = QLabel(f"yt-dlp GUI\nВерсия {get_version()}\nГрафический интерфейс для yt-dlp")
         layout.addWidget(label)
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
         button_box.accepted.connect(self.accept)

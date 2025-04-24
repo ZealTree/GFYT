@@ -9,7 +9,7 @@ on:
       - main
 
 permissions:
-  contents: write # Разрешение для создания релизов
+  contents: write
 
 jobs:
   build:
@@ -26,22 +26,23 @@ jobs:
             os_suffix: windows
 
     steps:
-      # 1. Клонируем репозиторий
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      # 2. Устанавливаем Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      # 3. Устанавливаем переменную даты
-      - name: Set build date
-        run: echo "BUILD_DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(cat version.txt)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
         shell: bash
 
-      # 4. Кэшируем pip для ускорения
       - name: Cache pip
         uses: actions/cache@v4
         with:
@@ -50,46 +51,60 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      # 5. Устанавливаем зависимости
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
           pip install -r requirements.txt
 
-      # 6. Устанавливаем дополнительные системные зависимости (для Linux)
       - name: Install system dependencies (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libegl1 libopengl0 libgl1-mesa-dev
+          sudo apt-get install -y libegl1 libopengl0 libgl1-mesa-dev upx-ucl
 
-      # 7. Компилируем бинарник с PyInstaller
+      - name: Install UPX (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install upx
+        shell: powershell
+
       - name: Build with PyInstaller
         run: |
-          pyinstaller --name gui_for_yt-dlp_${{ env.BUILD_DATE }}_${{ matrix.os_suffix }} \
+          pyinstaller --name gui_for_yt-dlp_v${{ env.VERSION }}_${{ matrix.os_suffix }} \
                       --onefile \
                       --icon assets/icon.ico \
-                      --add-data "assets/icon.ico${{ matrix.os == 'windows-latest' && ';' || ':' }}." \
+                      --add-data "assets/icon.ico${{ matrix.os == 'windows-latest' && ';' || ':' }}assets" \
+                      --add-data "version.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}." \
                       --noconfirm \
+                      --upx-dir ${{ matrix.os == 'windows-latest' && 'C:\ProgramData\chocolatey\bin' || '/usr/bin' }} \
                       gui_yt-dlp.py
         shell: bash
 
-      # 8. Сохраняем бинарник как артефакт
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gui_for_yt-dlp_${{ env.BUILD_DATE }}_${{ matrix.os_suffix }}
-          path: dist/gui_for_yt-dlp_${{ env.BUILD_DATE }}_${{ matrix.os_suffix }}*
+          name: gui_for_yt-dlp_v${{ env.VERSION }}_${{ matrix.os_suffix }}
+          path: dist/gui_for_yt-dlp_v${{ env.VERSION }}_${{ matrix.os_suffix }}*
 
-      # 9. Публикуем в релиз (только для пуша в main)
       - name: Create Release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/gui_for_yt-dlp_${{ env.BUILD_DATE }}_${{ matrix.os_suffix }}*
-          tag_name: v${{ github.run_number }}
-          name: Release ${{ github.run_number }}
-          body: Automated release for yt-dlp GUI
+          files: dist/gui_for_yt-dlp_v${{ env.VERSION }}_${{ matrix.os_suffix }}*
+          tag_name: v${{ env.VERSION }}
+          name: Release v${{ env.VERSION }}
+          body: Automated release for yt-dlp GUI v${{ env.VERSION }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bump version
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          python bump_version.py
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+          git add version.txt
+          git commit -m "Bump version to $(cat version.txt)"
+          git push
+        shell: bash
