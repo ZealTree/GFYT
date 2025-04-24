@@ -67,7 +67,7 @@ jobs:
           pyinstaller --name gui_for_yt-dlp_${{ env.BUILD_DATE }}_${{ matrix.os_suffix }} \
                       --onefile \
                       --icon icon.ico \
-                      --add-data "icon.ico;." \
+                      --add-data "icon.ico${{ matrix.os == 'windows-latest' && ';' || ':' }}." \
                       --noconfirm \
                       gui_yt-dlp.py
         shell: bash
