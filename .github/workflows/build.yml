@@ -1,0 +1,92 @@
+name: Build yt-dlp GUI Binaries
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python-version: ['3.10']
+        os_suffix: [windows, linux]
+        exclude:
+          - os: windows-latest
+            os_suffix: linux
+          - os: ubuntu-latest
+            os_suffix: windows
+
+    steps:
+      # 1. Клонируем репозиторий
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Устанавливаем Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # 3. Устанавливаем переменную даты
+      - name: Set build date
+        run: echo "BUILD_DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
+        shell: bash
+
+      # 4. Кэшируем pip для ускорения
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      # 5. Устанавливаем зависимости
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r requirements.txt
+
+      # 6. Устанавливаем дополнительные системные зависимости (для Linux)
+      - name: Install system dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libopengl0 libgl1-mesa-dev
+
+      # 7. Компилируем бинарник с PyInstaller
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --name gui_for_yt-dlp_${{ env.BUILD_DATE }}_${{ matrix.os_suffix }} \
+                      --onefile \
+                      --icon icon.ico \
+                      --add-data "icon.ico;." \
+                      --noconfirm \
+                      gui_yt-dlp.py
+        shell: bash
+
+      # 8. Сохраняем бинарник как артефакт
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui_for_yt-dlp_${{ env.BUILD_DATE }}_${{ matrix.os_suffix }}
+          path: dist/gui_for_yt-dlp_${{ env.BUILD_DATE }}_${{ matrix.os_suffix }}*
+
+      # 9. Публикуем в релиз (только для пуша в main)
+      - name: Create Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/gui_for_yt-dlp_${{ env.BUILD_DATE }}_${{ matrix.os_suffix }}*
+          tag_name: v${{ github.run_number }}
+          name: Release ${{ github.run_number }}
+          body: Automated release for yt-dlp GUI
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
