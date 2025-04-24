@@ -1,7 +1,11 @@
-yt-dlp.exe
-yt-dlp.conf
-yt-dlp-gui.log
-yt-dlp
+__pycache__/
+*.log
+*.pyc
+*.spec
 build/
 dist/
 version_info.txt
+yt-dlp
+yt-dlp-gui.log
+yt-dlp.conf
+yt-dlp.exe
