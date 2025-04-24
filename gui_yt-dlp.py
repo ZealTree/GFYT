@@ -835,7 +835,7 @@ class YTDLPGUI(QMainWindow):
 
     def setup_icons(self):
         try:
-            self.setWindowIcon(QIcon("icon.png"))
+            self.setWindowIcon(QIcon("assets/icon.ico"))
         except:
             pass
 
