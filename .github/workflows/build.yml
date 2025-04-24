@@ -8,6 +8,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write # Разрешение для создания релизов
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
