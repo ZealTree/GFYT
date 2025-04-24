@@ -10,10 +10,10 @@ from PyQt6.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QCheckBox, QComboBox,
     QTextEdit, QFileDialog, QMessageBox, QProgressDialog,
     QRadioButton, QDialog, QTableWidget, QTableWidgetItem,
-    QDialogButtonBox, QHeaderView, QStatusBar, QGroupBox
+    QDialogButtonBox, QHeaderView, QStatusBar, QGroupBox, QFormLayout, QButtonGroup
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QUrl, QTimer
-from PyQt6.QtGui import QDesktopServices, QIcon, QGuiApplication, QAction, QActionGroup
+from PyQt6.QtGui import QDesktopServices, QIcon, QGuiApplication, QAction
 
 # Константы
 YTDLP_RELEASES_URL = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
@@ -279,6 +279,7 @@ class TemplateEditorDialog(QDialog):
         return self.template_edit.text()
 
 class OutputSettingsDialog(QDialog):
+    """Диалоговое окно для настроек вывода."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Настройки вывода")
@@ -291,7 +292,9 @@ class OutputSettingsDialog(QDialog):
 
         path_layout = QHBoxLayout()
         self.path_input = QLineEdit(self.parent.path_input.text())
+        self.path_input.setToolTip("Путь для сохранения загруженных файлов")
         self.path_browse_btn = QPushButton("Обзор...")
+        self.path_browse_btn.setToolTip("Выбрать папку для сохранения")
         self.path_browse_btn.clicked.connect(self.browse_path)
         path_layout.addWidget(self.path_input)
         path_layout.addWidget(self.path_browse_btn)
@@ -300,7 +303,9 @@ class OutputSettingsDialog(QDialog):
 
         template_layout = QHBoxLayout()
         self.template_input = QLineEdit(self.parent.template_input.text())
+        self.template_input.setToolTip("Шаблон имени выходного файла")
         self.template_btn = QPushButton("Конструктор...")
+        self.template_btn.setToolTip("Открыть конструктор шаблонов")
         self.template_btn.clicked.connect(self.edit_template)
         template_layout.addWidget(self.template_input)
         template_layout.addWidget(self.template_btn)
@@ -310,6 +315,7 @@ class OutputSettingsDialog(QDialog):
         self.merge_combo = QComboBox()
         self.merge_combo.addItems(["mp4", "mkv"])
         self.merge_combo.setCurrentText(self.parent.merge_combo.currentText())
+        self.merge_combo.setToolTip("Формат для объединения видео и аудио")
         layout.addWidget(QLabel("Формат объединения:"))
         layout.addWidget(self.merge_combo)
 
@@ -337,6 +343,194 @@ class OutputSettingsDialog(QDialog):
         self.parent.path_input.setText(self.path_input.text())
         self.parent.template_input.setText(self.template_input.text())
         self.parent.merge_combo.setCurrentText(self.merge_combo.currentText())
+
+    def on_accept(self):
+        self.save()
+        self.accept()
+
+class ProxySettingsDialog(QDialog):
+    """Диалоговое окно для настроек прокси."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Настройки прокси")
+        self.setMinimumSize(300, 200)
+        self.parent = parent
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout()
+
+        self.proxy_none_rb = QRadioButton("Не использовать прокси")
+        self.proxy_none_rb.setToolTip("Отключить использование прокси")
+        self.proxy_none_rb.setChecked(self.parent.proxy_none_rb.isChecked())
+        self.proxy_use_rb = QRadioButton("Использовать прокси")
+        self.proxy_use_rb.setToolTip("Включить прокси для загрузки")
+        self.proxy_use_rb.setChecked(self.parent.proxy_use_rb.isChecked())
+        self.proxy_button_group = QButtonGroup()
+        self.proxy_button_group.addButton(self.proxy_none_rb)
+        self.proxy_button_group.addButton(self.proxy_use_rb)
+        layout.addWidget(self.proxy_none_rb)
+        layout.addWidget(self.proxy_use_rb)
+
+        proxy_form = QFormLayout()
+        self.proxy_type_combo = QComboBox()
+        self.proxy_type_combo.addItems(["http", "socks4", "socks5"])
+        self.proxy_type_combo.setCurrentText(self.parent.proxy_type_combo.currentText())
+        self.proxy_type_combo.setToolTip("Тип прокси-сервера")
+        self.proxy_address_input = QLineEdit(self.parent.proxy_address_input.text())
+        self.proxy_address_input.setPlaceholderText("адрес:порт")
+        self.proxy_address_input.setToolTip("Адрес и порт прокси-сервера")
+        proxy_form.addRow("Тип прокси:", self.proxy_type_combo)
+        proxy_form.addRow("Адрес прокси:", self.proxy_address_input)
+        layout.addLayout(proxy_form)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        button_box.accepted.connect(self.on_accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+        self.setLayout(layout)
+        self.set_proxy_enabled(self.proxy_use_rb.isChecked())
+        self.proxy_none_rb.toggled.connect(lambda: self.set_proxy_enabled(False))
+        self.proxy_use_rb.toggled.connect(lambda: self.set_proxy_enabled(True))
+
+    def set_proxy_enabled(self, enabled):
+        self.proxy_type_combo.setEnabled(enabled)
+        self.proxy_address_input.setEnabled(enabled)
+
+    def save(self):
+        self.parent.proxy_none_rb.setChecked(self.proxy_none_rb.isChecked())
+        self.parent.proxy_use_rb.setChecked(self.proxy_use_rb.isChecked())
+        self.parent.proxy_type_combo.setCurrentText(self.proxy_type_combo.currentText())
+        if self.proxy_none_rb.isChecked():
+            self.parent.proxy_address_input.clear()  # Очищаем адрес при выборе "Не использовать прокси"
+        else:
+            self.parent.proxy_address_input.setText(self.proxy_address_input.text())
+        self.parent.set_proxy_enabled(self.proxy_use_rb.isChecked())
+
+    def on_accept(self):
+        if self.proxy_use_rb.isChecked() and not self.proxy_address_input.text().strip():
+            QMessageBox.warning(self, "Ошибка", "Введите адрес прокси (например, 127.0.0.1:8080) или выберите 'Не использовать прокси'")
+            return
+        self.save()
+        self.accept()
+
+class CookiesSettingsDialog(QDialog):
+    """Диалоговое окно для настроек cookies."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Настройки cookies")
+        self.setMinimumSize(400, 300)
+        self.parent = parent
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout()
+
+        self.cookies_none_rb = QRadioButton("Не использовать cookies")
+        self.cookies_none_rb.setToolTip("Отключить использование cookies")
+        self.cookies_none_rb.setChecked(self.parent.cookies_none_rb.isChecked())
+        self.cookies_file_rb = QRadioButton("Использовать файл cookies")
+        self.cookies_file_rb.setToolTip("Использовать cookies из файла")
+        self.cookies_file_rb.setChecked(self.parent.cookies_file_rb.isChecked())
+        self.cookies_browser_rb = QRadioButton("Использовать cookies из браузера")
+        self.cookies_browser_rb.setToolTip("Извлечь cookies из браузера")
+        self.cookies_browser_rb.setChecked(self.parent.cookies_browser_rb.isChecked())
+
+        # Группируем радиокнопки для взаимоисключения
+        self.cookies_button_group = QButtonGroup()
+        self.cookies_button_group.addButton(self.cookies_none_rb)
+        self.cookies_button_group.addButton(self.cookies_file_rb)
+        self.cookies_button_group.addButton(self.cookies_browser_rb)
+
+        layout.addWidget(self.cookies_none_rb)
+        layout.addWidget(self.cookies_file_rb)
+
+        self.cookies_file_input = QLineEdit(self.parent.cookies_file_input.text())
+        self.cookies_file_input.setToolTip("Путь к файлу cookies")
+        self.cookies_file_browse_btn = QPushButton("Обзор...")
+        self.cookies_file_browse_btn.setToolTip("Выбрать файл cookies")
+        self.cookies_file_browse_btn.clicked.connect(self.browse_cookies)
+        file_layout = QHBoxLayout()
+        file_layout.addWidget(self.cookies_file_input)
+        file_layout.addWidget(self.cookies_file_browse_btn)
+        layout.addLayout(file_layout)
+
+        layout.addWidget(self.cookies_browser_rb)
+        browser_layout = QVBoxLayout()
+        self.browser_combo = QComboBox()
+        self.browser_combo.addItems(SUPPORTED_BROWSERS)
+        self.browser_combo.setCurrentText(self.parent.browser_combo.currentText())
+        self.browser_combo.setToolTip("Выберите браузер для извлечения cookies")
+        browser_layout.addWidget(self.browser_combo)
+        self.browser_profile_input = QLineEdit(self.parent.browser_profile_input.text())
+        self.browser_profile_input.setPlaceholderText("Путь к профилю браузера (опционально)")
+        self.browser_profile_input.setToolTip("Путь к профилю браузера для извлечения cookies")
+        self.browser_profile_browse_btn = QPushButton("Обзор...")
+        self.browser_profile_browse_btn.setToolTip("Выбрать папку профиля браузера")
+        self.browser_profile_browse_btn.clicked.connect(self.browse_browser_profile)
+        profile_layout = QHBoxLayout()
+        profile_layout.addWidget(self.browser_profile_input)
+        profile_layout.addWidget(self.browser_profile_browse_btn)
+        browser_layout.addLayout(profile_layout)
+        layout.addLayout(browser_layout)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        button_box.accepted.connect(self.on_accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+        self.setLayout(layout)
+        self.set_cookies_enabled(self.get_current_mode())
+        self.cookies_none_rb.toggled.connect(lambda: self.set_cookies_enabled('none'))
+        self.cookies_file_rb.toggled.connect(lambda: self.set_cookies_enabled('file'))
+        self.cookies_browser_rb.toggled.connect(lambda: self.set_cookies_enabled('browser'))
+
+    def get_current_mode(self):
+        if self.cookies_file_rb.isChecked():
+            return 'file'
+        elif self.cookies_browser_rb.isChecked():
+            return 'browser'
+        return 'none'
+
+    def set_cookies_enabled(self, mode):
+        enabled_file = mode == 'file'
+        enabled_browser = mode == 'browser'
+        self.cookies_file_input.setEnabled(enabled_file)
+        self.cookies_file_browse_btn.setEnabled(enabled_file)
+        self.browser_combo.setEnabled(enabled_browser)
+        self.browser_profile_input.setEnabled(enabled_browser)
+        self.browser_profile_browse_btn.setEnabled(enabled_browser)
+
+    def browse_cookies(self):
+        file, _ = QFileDialog.getOpenFileName(
+            self, "Выберите файл cookies", "", "Текстовые файлы (*.txt);;Все файлы (*)"
+        )
+        if file:
+            self.cookies_file_input.setText(file)
+
+    def browse_browser_profile(self):
+        path = QFileDialog.getExistingDirectory(self, "Выберите папку профиля браузера", self.browser_profile_input.text())
+        if path:
+            self.browser_profile_input.setText(path)
+
+    def save(self):
+        self.parent.cookies_none_rb.setChecked(self.cookies_none_rb.isChecked())
+        self.parent.cookies_file_rb.setChecked(self.cookies_file_rb.isChecked())
+        self.parent.cookies_browser_rb.setChecked(self.cookies_browser_rb.isChecked())
+        
+        if self.cookies_none_rb.isChecked():
+            self.parent.cookies_file_input.clear()
+            self.parent.browser_profile_input.clear()
+        elif self.cookies_file_rb.isChecked():
+            self.parent.cookies_file_input.setText(self.cookies_file_input.text())
+            self.parent.browser_profile_input.clear()
+        elif self.cookies_browser_rb.isChecked():
+            self.parent.cookies_file_input.clear()
+            self.parent.browser_profile_input.setText(self.browser_profile_input.text())
+            
+        self.parent.browser_combo.setCurrentText(self.browser_combo.currentText())
+        self.parent.set_cookies_enabled(self.get_current_mode() != 'none', self.get_current_mode())
 
     def on_accept(self):
         self.save()
@@ -583,30 +777,22 @@ class YTDLPGUI(QMainWindow):
         reset_action.triggered.connect(self.reset_settings)
         edit_menu.addAction(reset_action)
 
-        # Оптимизированное меню Параметры
+        # Меню Параметры
         params_menu = menubar.addMenu("Параметры")
         
-        # Подменю вывода
-        output_menu = params_menu.addMenu("Выходные настройки")
-        
-        path_action = QAction(f"Папка сохранения: {self.path_input.text()}", self)
-        path_action.triggered.connect(lambda: self.change_setting("path"))
-        output_menu.addAction(path_action)
-        
-        template_action = QAction(f"Шаблон имени: {self.template_input.text()}", self)
-        template_action.triggered.connect(lambda: self.change_setting("template"))
-        output_menu.addAction(template_action)
-        
-        format_menu = output_menu.addMenu("Формат объединения")
-        format_group = QActionGroup(self)
-        for fmt in ["mp4", "mkv"]:
-            action = QAction(fmt, self, checkable=True)
-            action.setChecked(fmt == self.merge_combo.currentText())
-            action.triggered.connect(lambda _, f=fmt: self.merge_combo.setCurrentText(f))
-            format_group.addAction(action)
-            format_menu.addAction(action)
-        
-        # Дополнительные опции как чекбоксы в меню
+        output_action = QAction("Настройки вывода...", self)
+        output_action.triggered.connect(self.show_output_settings)
+        params_menu.addAction(output_action)
+
+        proxy_action = QAction("Настройки прокси...", self)
+        proxy_action.triggered.connect(self.show_proxy_settings)
+        params_menu.addAction(proxy_action)
+
+        cookies_action = QAction("Настройки cookies...", self)
+        cookies_action.triggered.connect(self.show_cookies_settings)
+        params_menu.addAction(cookies_action)
+
+        # Дополнительные опции (сохраняем текущую реализацию)
         advanced_menu = params_menu.addMenu("Дополнительно")
         
         self.no_overwrite_action = QAction("Не перезаписывать файлы", advanced_menu, checkable=True)
@@ -628,44 +814,6 @@ class YTDLPGUI(QMainWindow):
         self.thumbnail_action.setChecked(self.thumbnail_check.isChecked())
         self.thumbnail_action.toggled.connect(lambda checked: self.update_check_state(self.thumbnail_check, checked))
         advanced_menu.addAction(self.thumbnail_action)
-        
-        # Прокси (радио-кнопки)
-        proxy_menu = params_menu.addMenu("Прокси")
-        proxy_group = QActionGroup(self)
-        
-        proxy_none_action = QAction("Без прокси", proxy_menu, checkable=True)
-        proxy_none_action.setChecked(self.proxy_none_rb.isChecked())
-        proxy_none_action.toggled.connect(self.proxy_none_rb.setChecked)
-        proxy_group.addAction(proxy_none_action)
-        proxy_menu.addAction(proxy_none_action)
-        
-        proxy_use_action = QAction("Использовать прокси", proxy_menu, checkable=True)
-        proxy_use_action.setChecked(self.proxy_use_rb.isChecked())
-        proxy_use_action.toggled.connect(self.proxy_use_rb.setChecked)
-        proxy_group.addAction(proxy_use_action)
-        proxy_menu.addAction(proxy_use_action)
-        
-        # Cookies (радио-кнопки)
-        cookies_menu = params_menu.addMenu("Cookies")
-        cookies_group = QActionGroup(self)
-        
-        cookies_none_action = QAction("Не использовать", cookies_menu, checkable=True)
-        cookies_none_action.setChecked(self.cookies_none_rb.isChecked())
-        cookies_none_action.toggled.connect(self.cookies_none_rb.setChecked)
-        cookies_group.addAction(cookies_none_action)
-        cookies_menu.addAction(cookies_none_action)
-        
-        cookies_file_action = QAction("Из файла", cookies_menu, checkable=True)
-        cookies_file_action.setChecked(self.cookies_file_rb.isChecked())
-        cookies_file_action.toggled.connect(self.cookies_file_rb.setChecked)
-        cookies_group.addAction(cookies_file_action)
-        cookies_menu.addAction(cookies_file_action)
-        
-        cookies_browser_action = QAction("Из браузера", cookies_menu, checkable=True)
-        cookies_browser_action.setChecked(self.cookies_browser_rb.isChecked())
-        cookies_browser_action.toggled.connect(self.cookies_browser_rb.setChecked)
-        cookies_group.addAction(cookies_browser_action)
-        cookies_menu.addAction(cookies_browser_action)
 
         # Меню Инструменты
         tools_menu = menubar.addMenu("Инструменты")
@@ -687,20 +835,26 @@ class YTDLPGUI(QMainWindow):
         checkbox.setChecked(checked)
         self.save_config()
 
-    def change_setting(self, setting_type):
-        if setting_type == "path":
-            path = QFileDialog.getExistingDirectory(self, "Выберите папку для сохранения", self.path_input.text())
-            if path:
-                if os.access(path, os.W_OK):
-                    self.path_input.setText(path)
-                    self.save_config()
-                else:
-                    QMessageBox.warning(self, "Ошибка", "Нет прав на запись в выбранную папку")
-        elif setting_type == "template":
-            dialog = TemplateEditorDialog(self.template_input.text(), self)
-            if dialog.exec() == QDialog.DialogCode.Accepted:
-                self.template_input.setText(dialog.get_template())
-                self.save_config()
+    def show_output_settings(self):
+        dialog = OutputSettingsDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            dialog.save()
+            self.save_config()
+            self.status_bar.showMessage("Настройки вывода обновлены", 3000)
+
+    def show_proxy_settings(self):
+        dialog = ProxySettingsDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            dialog.save()
+            self.save_config()
+            self.status_bar.showMessage("Настройки прокси обновлены", 3000)
+
+    def show_cookies_settings(self):
+        dialog = CookiesSettingsDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            dialog.save()
+            self.save_config()
+            self.status_bar.showMessage("Настройки cookies обновлены", 3000)
 
     def setup_main_interface(self):
         central_widget = QWidget()
@@ -898,6 +1052,7 @@ class YTDLPGUI(QMainWindow):
                     self.proxy_address_input.setText(addr)
             else:
                 self.proxy_none_rb.setChecked(True)
+                self.proxy_address_input.clear()
 
             if params['cookies']:
                 self.cookies_file_rb.setChecked(True)
@@ -913,6 +1068,8 @@ class YTDLPGUI(QMainWindow):
                     self.browser_profile_input.clear()
             else:
                 self.cookies_none_rb.setChecked(True)
+                self.cookies_file_input.clear()
+                self.browser_profile_input.clear()
 
             self.no_overwrite_check.setChecked(params['no_overwrites'])
             self.sponsorblock_check.setChecked(params['sponsorblock_remove'])
@@ -932,11 +1089,11 @@ class YTDLPGUI(QMainWindow):
         config_lines.append(f'--paths "{self.path_input.text()}"')
         config_lines.append(f'--merge-output-format {self.merge_combo.currentText()}')
 
-        if self.proxy_use_rb.isChecked() and self.proxy_address_input.text():
-            config_lines.append(f'--proxy {self.proxy_type_combo.currentText()}://{self.proxy_address_input.text()}')
+        if self.proxy_use_rb.isChecked() and self.proxy_address_input.text().strip():
+            config_lines.append(f'--proxy {self.proxy_type_combo.currentText()}://{self.proxy_address_input.text().strip()}')
 
-        if self.cookies_file_rb.isChecked() and self.cookies_file_input.text():
-            config_lines.append(f'--cookies "{self.cookies_file_input.text()}"')
+        if self.cookies_file_rb.isChecked() and self.cookies_file_input.text().strip():
+            config_lines.append(f'--cookies "{self.cookies_file_input.text().strip()}"')
         elif self.cookies_browser_rb.isChecked():
             browser = self.browser_combo.currentText()
             profile = self.browser_profile_input.text().strip()
@@ -961,6 +1118,17 @@ class YTDLPGUI(QMainWindow):
         else:
             self.status_bar.showMessage("Не удалось сохранить конфигурацию", 5000)
             return False
+
+    def set_proxy_enabled(self, enabled):
+        """Включает или отключает элементы управления прокси."""
+        self.proxy_type_combo.setEnabled(enabled)
+        self.proxy_address_input.setEnabled(enabled)
+
+    def set_cookies_enabled(self, enabled, mode=None):
+        """Включает или отключает элементы управления cookies."""
+        self.cookies_file_input.setEnabled(enabled and mode == 'file')
+        self.browser_combo.setEnabled(enabled and mode == 'browser')
+        self.browser_profile_input.setEnabled(enabled and mode == 'browser')
 
     def start_download(self):
         url = self.url_input.text().strip()
