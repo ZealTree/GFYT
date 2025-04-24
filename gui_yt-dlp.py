@@ -131,7 +131,9 @@ class ConfigManager:
             elif line.startswith('--proxy'):
                 params['proxy'] = line.split()[-1]
             elif line.startswith('--cookies'):
-                params['cookies'] = line.split('"')[1]
+                match = re.search(r'--cookies\s+"(.+?)"', line)
+                if match:
+                    params['cookies'] = match.group(1)
             elif line.startswith('--cookies-from-browser'):
                 params['cookies_from_browser'] = ' '.join(line.split()[1:])
             elif line == '--no-overwrites':
