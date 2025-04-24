@@ -4,3 +4,4 @@ yt-dlp-gui.log
 yt-dlp
 build/
 dist/
+version_info.txt
