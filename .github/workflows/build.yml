@@ -94,8 +94,21 @@ jobs:
           name: gui_for_yt-dlp_v${{ env.VERSION }}_${{ matrix.os_suffix }}
           path: dist/gui_for_yt-dlp_v${{ env.VERSION }}_${{ matrix.os_suffix }}*
 
-      - name: Create Release
+      - name: Check if release exists
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: check_release
+        run: |
+          TAG="v${{ env.VERSION }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Release with tag $TAG already exists, skipping release creation"
+            echo "release_exists=true" >> $GITHUB_ENV
+          else
+            echo "release_exists=false" >> $GITHUB_ENV
+          fi
+        shell: bash
+
+      - name: Create Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.release_exists == 'false'
         uses: softprops/action-gh-release@v2
         with:
           files: dist/gui_for_yt-dlp_v${{ env.VERSION }}_${{ matrix.os_suffix }}*
