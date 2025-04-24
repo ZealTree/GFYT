@@ -6,23 +6,16 @@ import requests
 import re
 from datetime import datetime
 from pathlib import Path
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                            QLabel, QLineEdit, QPushButton, QCheckBox, QComboBox,
-                            QTextEdit, QFileDialog, QMessageBox, QProgressDialog,
-                            QRadioButton, QButtonGroup, QFormLayout, QMenuBar, QMenu, QAction,
-                            QDialog, QPlainTextEdit, QTableWidget, QTableWidgetItem,
-                            QDialogButtonBox, QHeaderView, QStatusBar, QFrame)
-from PyQt5.QtCore import QThread, pyqtSignal, Qt, QSettings, QUrl, QTimer
-from PyQt5.QtGui import QDesktopServices, QIcon
-
-# Проверка зависимостей
-try:
-    import PyQt5
-    import requests
-except ImportError as e:
-    print(f"Ошибка: Необходимая библиотека не установлена: {e}")
-    print("Установите зависимости с помощью: pip install PyQt5 requests")
-    sys.exit(1)
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QLineEdit, QPushButton, QCheckBox, QComboBox,
+    QTextEdit, QFileDialog, QMessageBox, QProgressDialog,
+    QRadioButton, QButtonGroup, QFormLayout, 
+    QDialog, QPlainTextEdit, QTableWidget, QTableWidgetItem,
+    QDialogButtonBox, QHeaderView, QStatusBar, QGroupBox
+)
+from PyQt6.QtCore import QThread, pyqtSignal, Qt, QUrl, QTimer
+from PyQt6.QtGui import QDesktopServices, QIcon, QGuiApplication, QAction
 
 # Константы
 YTDLP_RELEASES_URL = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
@@ -70,7 +63,6 @@ class DownloaderThread(QThread):
 class ConfigManager:
     CONFIG_FILE = "yt-dlp.conf"
     LOG_FILE = "yt-dlp-gui.log"
-    SETTINGS_FILE = "gui-settings.ini"
 
     DEFAULT_CONFIG = """# yt-dlp Configuration File
 --output "%(title)s.%(ext)s"
@@ -156,7 +148,7 @@ class ConfigManager:
         """Логирует информацию о загрузке."""
         with open(cls.LOG_FILE, 'a', encoding='utf-8') as f:
             status = "SUCCESS" if success else "FAILED"
-            f.write(f"[{datetime.now()}] {status} - {url}\n")
+            f.write(fr"[{datetime.now()}] {status} - {url}\ \n")
 
     @classmethod
     def get_ytdlp_path(cls):
@@ -231,7 +223,7 @@ class TemplateEditorDialog(QDialog):
         layout.addWidget(QLabel("Пример:"))
         layout.addWidget(self.preview_label)
 
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
@@ -243,9 +235,9 @@ class TemplateEditorDialog(QDialog):
         self.variables_table = QTableWidget()
         self.variables_table.setColumnCount(3)
         self.variables_table.setHorizontalHeaderLabels(["Переменная", "Описание", "Действие"])
-        self.variables_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.variables_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.variables_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.variables_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.variables_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.variables_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.variables_table.setRowCount(8)
 
         variables = [
@@ -332,7 +324,7 @@ class OutputSettingsDialog(QDialog):
         layout.addWidget(QLabel("Формат объединения:"))
         layout.addWidget(self.merge_combo)
 
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
@@ -349,7 +341,7 @@ class OutputSettingsDialog(QDialog):
 
     def edit_template(self):
         dialog = TemplateEditorDialog(self.template_input.text(), self)
-        if dialog.exec_() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             self.template_input.setText(dialog.get_template())
 
     def save(self):
@@ -388,7 +380,7 @@ class AdditionalOptionsDialog(QDialog):
         layout.addWidget(self.metadata_check)
         layout.addWidget(self.thumbnail_check)
 
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
@@ -438,7 +430,7 @@ class ProxySettingsDialog(QDialog):
         proxy_form.addRow("Адрес прокси:", self.proxy_address_input)
         layout.addLayout(proxy_form)
 
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
@@ -513,7 +505,7 @@ class CookiesSettingsDialog(QDialog):
         browser_layout.addLayout(profile_layout)
         layout.addLayout(browser_layout)
 
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
@@ -574,7 +566,7 @@ class AboutDialog(QDialog):
         title.setStyleSheet("font-size: 18px; font-weight: bold;")
         layout.addWidget(title)
 
-        version = QLabel(f"Версия: Built on {datetime.now().strftime('%y%m%d_%H%M%S')} (PyQt5)")
+        version = QLabel(f"Версия: Built on {datetime.now().strftime('%y%m%d_%H%M%S')} (PyQt6)")
         layout.addWidget(version)
 
         desc = QLabel("Графический интерфейс для yt-dlp\n\n"
@@ -683,8 +675,6 @@ class YTDLPGUI(QMainWindow):
         self.load_config()
 
         self.debug_console = DebugConsole()
-        self.settings = QSettings(ConfigManager.SETTINGS_FILE, QSettings.IniFormat)
-        self.load_gui_settings()
 
         # Таймер для обновления консоли
         self.console_update_timer = QTimer(self)
@@ -758,7 +748,7 @@ class YTDLPGUI(QMainWindow):
 
         progress_dialog = QProgressDialog("Загрузка yt-dlp...", "Отмена", 0, 100, self)
         progress_dialog.setWindowTitle("Загрузка yt-dlp")
-        progress_dialog.setWindowModality(Qt.WindowModal)
+        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         progress_dialog.setAutoClose(True)
 
         downloader = DownloaderThread(url, destination)
@@ -769,7 +759,7 @@ class YTDLPGUI(QMainWindow):
         progress_dialog.canceled.connect(downloader.stop)
         downloader.start()
 
-        progress_dialog.exec_()
+        progress_dialog.exec()
 
     def on_ytdlp_download_finished(self, success, message, progress_dialog):
         """Обработчик завершения загрузки yt-dlp."""
@@ -811,17 +801,18 @@ class YTDLPGUI(QMainWindow):
                 f"Доступна новая версия yt-dlp: {latest_version}\n"
                 f"Текущая версия: {current_version}\n\n"
                 "Обновить сейчас?",
-                QMessageBox.Yes | QMessageBox.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
 
-            if reply == QMessageBox.Yes:
+            if reply == QMessageBox.StandardButton.Yes:
                 self.download_ytdlp()
         else:
             self.status_bar.showMessage(f"Установлена последняя версия yt-dlp: {current_version}", 5000)
 
     def setup_ui(self):
         self.setWindowTitle("yt-dlp GUI")
-        self.setMinimumSize(800, 400)  # Уменьшенный минимальный размер
+        self.setMinimumSize(700, 500)
+        self.resize(800, 600)
 
         self.create_menus()
         self.setup_main_interface()
@@ -897,115 +888,150 @@ class YTDLPGUI(QMainWindow):
     def setup_main_interface(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
-        layout.setSpacing(10)
-
-        # URL Input Section
-        url_section = QWidget()
-        url_section.setStyleSheet("border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
-        url_section_layout = QVBoxLayout(url_section)
-        url_section_layout.setContentsMargins(5, 5, 5, 5)
-
-        url_label = QLabel("Видео для загрузки")
-        url_label.setStyleSheet("font-weight: bold; font-size: 12px; margin-bottom: 5px;")
-        url_section_layout.addWidget(url_label)
-
-        url_inner_widget = QWidget()
-        url_inner_layout = QHBoxLayout(url_inner_widget)
-        url_inner_layout.setSpacing(5)
-        url_inner_layout.setAlignment(Qt.AlignVCenter)
-
-        # Кнопки слева
-        self.paste_btn = QPushButton("📋")
-        self.paste_btn.setMinimumHeight(24)
-        self.paste_btn.setFixedWidth(24)
-        self.paste_btn.setToolTip("Вставить URL из буфера обмена (Ctrl+V)")
-        self.paste_btn.clicked.connect(self.paste_url)
-        url_inner_layout.addWidget(self.paste_btn)
-
-        self.clear_btn = QPushButton("🗙")
-        self.clear_btn.setMinimumHeight(24)
-        self.clear_btn.setFixedWidth(24)
-        self.clear_btn.setToolTip("Очистить поле URL")
-        self.clear_btn.clicked.connect(self.clear_url)
-        url_inner_layout.addWidget(self.clear_btn)
-
+        
+        # Главный layout
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        
+        # URL секция
+        url_group = QGroupBox("Видео для загрузки")
+        url_layout = QVBoxLayout(url_group)
+        url_layout.setSpacing(8)
+        url_layout.setContentsMargins(8, 12, 8, 12)
+        
         # Поле ввода URL
         self.url_input = QLineEdit()
-        self.url_input.setMinimumHeight(24)
-        self.url_input.setMinimumWidth(300)
         self.url_input.setPlaceholderText("Введите URL видео или плейлиста")
         self.url_input.setToolTip("Введите URL видео или плейлиста (http:// или https://)")
         self.url_input.textChanged.connect(self.validate_url)
-        url_inner_layout.addWidget(self.url_input, stretch=3)
-
-        # Кнопки справа
-        self.download_btn = QPushButton("⬇")
-        self.download_btn.setMinimumHeight(24)
-        self.download_btn.setFixedWidth(24)
-        self.download_btn.setToolTip("Начать загрузку видео (Ctrl+Enter)")
+        url_layout.addWidget(self.url_input)
+        
+        # Кнопки
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(6)
+        
+        self.clear_btn = QPushButton("Очистить")
+        self.clear_btn.setToolTip("Очистить поле URL")
+        self.clear_btn.clicked.connect(self.clear_url)
+        
+        self.paste_btn = QPushButton("Вставить")
+        self.paste_btn.setToolTip("Вставить URL из буфера обмена (Ctrl+V)")
+        self.paste_btn.clicked.connect(self.paste_url)
+        
+        self.download_btn = QPushButton("Скачать")
+        self.download_btn.setToolTip("Начать загрузку видео (Enter)")
         self.download_btn.clicked.connect(self.start_download)
-        url_inner_layout.addWidget(self.download_btn)
-
-        self.cancel_btn = QPushButton("✕")
-        self.cancel_btn.setMinimumHeight(24)
-        self.cancel_btn.setFixedWidth(24)
+        
+        self.cancel_btn = QPushButton("Отменить")
         self.cancel_btn.setToolTip("Отменить текущую загрузку")
         self.cancel_btn.clicked.connect(self.cancel_download)
         self.cancel_btn.setEnabled(False)
-        url_inner_layout.addWidget(self.cancel_btn)
-
-        url_section_layout.addWidget(url_inner_widget)
-        layout.addWidget(url_section)
-
-        # Разделитель
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(separator)
-
-        # Console Output Section
-        console_section = QWidget()
-        console_section.setStyleSheet("border: 1px solid #ccc; border-radius: 4px; padding: 5px;")
-        console_layout = QVBoxLayout(console_section)
-
-        console_label = QLabel("Вывод")
-        console_label.setStyleSheet("font-weight: bold; font-size: 12px; margin-bottom: 5px;")
-        console_layout.addWidget(console_label)
-
+        
+        self.open_dir_btn = QPushButton("Папка")
+        self.open_dir_btn.setToolTip("Открыть папку с загруженным файлом")
+        self.open_dir_btn.clicked.connect(self.open_download_folder)
+        self.open_dir_btn.setEnabled(False)
+        
+        for btn in [self.clear_btn, self.paste_btn, self.download_btn, 
+                   self.cancel_btn, self.open_dir_btn]:
+            btn.setFixedSize(80, 28)
+            buttons_layout.addWidget(btn)
+        
+        buttons_layout.addStretch()
+        url_layout.addLayout(buttons_layout)
+        main_layout.addWidget(url_group)
+        
+        # Консоль вывода
+        console_group = QGroupBox("Вывод")
+        console_layout = QVBoxLayout(console_group)
+        console_layout.setContentsMargins(8, 12, 8, 12)
+        
         self.console_output = QTextEdit()
         self.console_output.setReadOnly(True)
         self.console_output.setPlaceholderText("Здесь будет отображаться ход загрузки...")
         self.console_output.setToolTip("Лог процесса загрузки")
         console_layout.addWidget(self.console_output)
-
-        layout.addWidget(console_section, stretch=1)
+        
+        main_layout.addWidget(console_group, stretch=1)
 
     def apply_styles(self):
         """Применяет стили для улучшения внешнего вида."""
         style_sheet = """
-            QLineEdit, QComboBox {
-                padding: 4px;
-                border: 1px solid #ccc;
+            QMainWindow {
+                background-color: #f5f5f5;
+            }
+            QGroupBox {
+                border: 1px solid #e0e0e0;
                 border-radius: 4px;
-                min-height: 24px;
+                margin-top: 6px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 3px;
+            }
+            QMenuBar {
+                background-color: white;
+                padding: 2px;
+                border-bottom: 1px solid #e0e0e0;
+            }
+            QMenuBar::item {
+                padding: 4px 8px;
+                background: transparent;
+            }
+            QMenuBar::item:selected {
+                background: #e0e0e0;
+            }
+            QMenu {
+                background-color: white;
+                border: 1px solid #e0e0e0;
+            }
+            QMenu::item:selected {
+                background-color: #e0e0e0;
+            }
+            QLineEdit, QComboBox, QTextEdit {
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 6px;
+                background: white;
+                selection-background-color: #e0e0e0;
+            }
+            QLineEdit:focus, QComboBox:focus, QTextEdit:focus {
+                border: 1px solid #4d90fe;
             }
             QLineEdit[valid="false"] {
-                border: 1px solid red;
+                border: 1px solid #ff6b6b;
             }
             QPushButton {
-                padding: 4px;
+                background-color: #f0f0f0;
+                border: 1px solid #ddd;
                 border-radius: 4px;
-                border: none;
-                background-color: #0078d7;
-                color: white;
-                min-height: 24px;
+                padding: 6px 12px;
+                min-width: 80px;
             }
             QPushButton:hover {
-                background-color: #005ea2;
+                background-color: #e0e0e0;
+            }
+            QPushButton:pressed {
+                background-color: #d0d0d0;
             }
             QPushButton:disabled {
-                background-color: #cccccc;
+                background-color: #f5f5f5;
+                color: #999;
+            }
+            QStatusBar {
+                background-color: white;
+                border-top: 1px solid #e0e0e0;
+                padding: 2px;
+                font-size: 11px;
+            }
+            QLabel {
+                color: #333;
+            }
+            QTextEdit {
+                font-family: monospace;
+                font-size: 10pt;
             }
         """
         self.setStyleSheet(style_sheet)
@@ -1019,31 +1045,31 @@ class YTDLPGUI(QMainWindow):
 
     def show_output_settings(self):
         dialog = OutputSettingsDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             dialog.save()
             self.status_bar.showMessage("Настройки вывода обновлены", 3000)
 
     def show_additional_options(self):
         dialog = AdditionalOptionsDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             dialog.save()
             self.status_bar.showMessage("Дополнительные опции обновлены", 3000)
 
     def show_proxy_settings(self):
         dialog = ProxySettingsDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             dialog.save()
             self.status_bar.showMessage("Настройки прокси обновлены", 3000)
 
     def show_cookies_settings(self):
         dialog = CookiesSettingsDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             dialog.save()
             self.status_bar.showMessage("Настройки cookies обновлены", 3000)
 
     def paste_url(self):
         """Вставляет URL из буфера обмена."""
-        clipboard = QApplication.clipboard()
+        clipboard = QGuiApplication.clipboard()
         url = clipboard.text().strip()
         if url:
             self.url_input.setText(url)
@@ -1066,7 +1092,7 @@ class YTDLPGUI(QMainWindow):
         """Открывает папку с загруженными файлами."""
         path = self.path_input.text()
         if os.path.exists(path):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+            QDesktopServices().openUrl(QUrl.fromLocalFile(path))
             self.status_bar.showMessage(f"Открыта папка: {path}", 3000)
         else:
             self.status_bar.showMessage("Папка не найдена", 5000)
@@ -1205,12 +1231,6 @@ class YTDLPGUI(QMainWindow):
             self.toggle_controls(True)
             self.console_update_timer.stop()
             self.status_bar.showMessage("Загрузка отменена", 3000)
-            # Восстанавливаем кнопку "Отменить"
-            self.cancel_btn.setText("✕")
-            self.cancel_btn.setToolTip("Отменить текущую загрузку")
-            self.cancel_btn.clicked.disconnect()
-            self.cancel_btn.clicked.connect(self.cancel_download)
-            self.cancel_btn.setEnabled(False)
 
     def download_finished(self, success, message):
         """Обрабатывает завершение загрузки."""
@@ -1223,24 +1243,13 @@ class YTDLPGUI(QMainWindow):
 
         if success:
             self.status_bar.showMessage("Загрузка завершена успешно!", 5000)
-            # Заменяем кнопку "Отменить" на "Открыть папку"
-            self.cancel_btn.setText("📂")
-            self.cancel_btn.setToolTip("Открыть папку с загруженным файлом")
-            self.cancel_btn.clicked.disconnect()
-            self.cancel_btn.clicked.connect(self.open_download_folder)
-            self.cancel_btn.setEnabled(True)
+            self.open_dir_btn.setEnabled(True)
         else:
             self.status_bar.showMessage(f"Ошибка загрузки: {message}", 5000)
-            # Восстанавливаем кнопку "Отменить"
-            self.cancel_btn.setText("✕")
-            self.cancel_btn.setToolTip("Отменить текущую загрузку")
-            self.cancel_btn.clicked.disconnect()
-            self.cancel_btn.clicked.connect(self.cancel_download)
-            self.cancel_btn.setEnabled(False)
 
     def toggle_controls(self, enabled):
         """Включает или отключает элементы управления GUI во время загрузки."""
-        for widget in [self.url_input, self.paste_btn, self.clear_btn, self.download_btn]:
+        for widget in [self.url_input, self.paste_btn, self.clear_btn, self.download_btn, self.open_dir_btn]:
             widget.setEnabled(enabled)
 
         self.cancel_btn.setEnabled(not enabled)
@@ -1248,7 +1257,7 @@ class YTDLPGUI(QMainWindow):
     def open_log_file(self):
         """Открывает файл логов."""
         if os.path.exists(ConfigManager.LOG_FILE):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(ConfigManager.LOG_FILE))
+            QDesktopServices().openUrl(QUrl.fromLocalFile(ConfigManager.LOG_FILE))
             self.status_bar.showMessage("Файл лога открыт", 3000)
         else:
             self.status_bar.showMessage("Файл лога не найден", 5000)
@@ -1288,7 +1297,7 @@ class YTDLPGUI(QMainWindow):
         cmd = [ConfigManager.get_ytdlp_path(), "--config-location", ConfigManager.CONFIG_FILE, url]
         cmd_text = " ".join(cmd)
 
-        clipboard = QApplication.clipboard()
+        clipboard = QGuiApplication.clipboard()
         clipboard.setText(cmd_text)
 
         self.status_bar.showMessage("Команда скопирована в буфер обмена", 3000)
@@ -1298,10 +1307,10 @@ class YTDLPGUI(QMainWindow):
         reply = QMessageBox.question(
             self, "Подтверждение",
             "Вы уверены, что хотите сбросить все настройки к значениям по умолчанию?",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
 
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             try:
                 with open(ConfigManager.CONFIG_FILE, 'w', encoding='utf-8') as f:
                     f.write(ConfigManager.DEFAULT_CONFIG)
@@ -1317,35 +1326,19 @@ class YTDLPGUI(QMainWindow):
 
     def open_documentation(self):
         """Открывает документацию в браузере."""
-        QDesktopServices.openUrl(QUrl("https://github.com/yt-dlp/yt-dlp"))
+        QDesktopServices().openUrl(QUrl("https://github.com/yt-dlp/yt-dlp"))
         self.status_bar.showMessage("Открыта документация в браузере", 3000)
 
     def show_about(self):
         """Показывает диалог 'О программе'."""
         about_dialog = AboutDialog()
-        about_dialog.exec_()
-
-    def load_gui_settings(self):
-        """Загружает настройки GUI (размер окна, позиция и т.д.)."""
-        geometry = self.settings.value("windowGeometry")
-        if geometry is not None:
-            self.restoreGeometry(geometry)
-
-        state = self.settings.value("windowState")
-        if state is not None:
-            self.restoreState(state)
-
-    def save_gui_settings(self):
-        """Сохраняет настройки GUI перед закрытием."""
-        self.settings.setValue("windowGeometry", self.saveGeometry())
-        self.settings.setValue("windowState", self.saveState())
+        about_dialog.exec()
 
     def closeEvent(self, event):
-        self.save_gui_settings()
         super().closeEvent(event)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = YTDLPGUI()
     window.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
