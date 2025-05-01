@@ -3,6 +3,10 @@ import sys
 import subprocess
 import requests
 import re
+import shutil
+import tempfile
+import zipfile
+import tarfile
 from datetime import datetime
 from pathlib import Path
 from PyQt6.QtWidgets import (
@@ -18,6 +22,7 @@ from PyQt6.QtGui import QDesktopServices, QIcon, QGuiApplication, QAction
 # Константы
 YTDLP_RELEASES_URL = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
 YTDLP_DOWNLOAD_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+FFMPEG_RELEASES_URL = "https://api.github.com/repos/yt-dlp/FFmpeg-Builds/releases/latest"
 USER_AGENT = "yt-dlp-gui/1.0"
 SUPPORTED_BROWSERS = ["brave", "chrome", "firefox", "vivaldi"]
 
@@ -57,6 +62,10 @@ class DownloaderThread(QThread):
                         progress = int((downloaded / total_size) * 100) if total_size > 0 else 0
                         self.progress.emit(progress)
 
+            # Логируем размер скачанного файла
+            file_size = os.path.getsize(self.destination) / (1024 * 1024)  # Размер в МБ
+            ConfigManager.log_download(f"Скачан файл {self.destination}, размер: {file_size:.2f} MB")
+
             self.finished.emit(True, "Файл успешно загружен")
         except Exception as e:
             self.finished.emit(False, f"Ошибка загрузки: {str(e)}")
@@ -92,7 +101,6 @@ class ConfigManager:
                 f.write(config_text)
             return True
         except Exception as e:
-            print(f"Config save error: {e}")
             return False
 
     @classmethod
@@ -100,8 +108,7 @@ class ConfigManager:
         try:
             with open(cls.CONFIG_FILE, 'r', encoding='utf-8') as f:
                 return f.read()
-        except Exception as e:
-            print(f"Config load error: {e}")
+        except Exception:
             return None
 
     @classmethod
@@ -116,7 +123,8 @@ class ConfigManager:
             'no_overwrites': False,
             'sponsorblock_remove': False,
             'add_metadata': False,
-            'embed_thumbnail': False
+            'embed_thumbnail': False,
+            'ffmpeg_location': None
         }
 
         lines = [line.strip() for line in config_text.split('\n') if line.strip() and not line.strip().startswith('#')]
@@ -136,6 +144,8 @@ class ConfigManager:
                     params['cookies'] = match.group(1)
             elif line.startswith('--cookies-from-browser'):
                 params['cookies_from_browser'] = ' '.join(line.split()[1:])
+            elif line.startswith('--ffmpeg-location'):
+                params['ffmpeg_location'] = line.split('"')[1]
             elif line == '--no-overwrites':
                 params['no_overwrites'] = True
             elif line == '--sponsorblock-remove all':
@@ -148,10 +158,10 @@ class ConfigManager:
         return params
 
     @classmethod
-    def log_download(cls, url, success=True):
+    def log_download(cls, message, success=True):
         with open(cls.LOG_FILE, 'a', encoding='utf-8') as f:
-            status = "SUCCESS" if success else "FAILED"
-            f.write(f"[{datetime.now()}] {status} - {url}\n")
+            status = "INFO" if success else "ERROR"
+            f.write(f"[{datetime.now()}] [{status}] {message}\n")
 
     @classmethod
     def get_ytdlp_path(cls):
@@ -177,6 +187,54 @@ class ConfigManager:
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
             return result.stdout.strip()
+        except Exception:
+            return None
+
+    @classmethod
+    def get_ffmpeg_path(cls):
+        config_text = cls.load_config()
+        if config_text:
+            params = cls.parse_config(config_text)
+            if params['ffmpeg_location'] and os.path.isdir(params['ffmpeg_location']):
+                ffmpeg_bin = 'ffmpeg.exe' if os.name == 'nt' else 'ffmpeg'
+                ffmpeg_path = os.path.join(params['ffmpeg_location'], ffmpeg_bin)
+                if os.path.isfile(ffmpeg_path):
+                    return ffmpeg_path
+        return "ffmpeg"  # Default to system ffmpeg
+
+    @classmethod
+    def check_ffmpeg_exists(cls):
+        ffmpeg_path = cls.get_ffmpeg_path()
+        try:
+            result = subprocess.run(
+                [ffmpeg_path, "-version"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    @classmethod
+    def get_ffmpeg_version(cls):
+        ffmpeg_path = cls.get_ffmpeg_path()
+        try:
+            result = subprocess.run(
+                [ffmpeg_path, "-version"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            )
+            if result.returncode != 0:
+                return None
+            version_line = result.stdout.split('\n')[0]
+            match = re.search(r'ffmpeg version (\S+)', version_line)
+            if match:
+                return match.group(1)
+            return None
         except Exception:
             return None
 
@@ -281,7 +339,6 @@ class TemplateEditorDialog(QDialog):
         return self.template_edit.text()
 
 class OutputSettingsDialog(QDialog):
-    """Диалоговое окно для настроек вывода."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Настройки вывода")
@@ -351,7 +408,6 @@ class OutputSettingsDialog(QDialog):
         self.accept()
 
 class ProxySettingsDialog(QDialog):
-    """Диалоговое окно для настроек прокси."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Настройки прокси")
@@ -405,10 +461,9 @@ class ProxySettingsDialog(QDialog):
         self.parent.proxy_use_rb.setChecked(self.proxy_use_rb.isChecked())
         self.parent.proxy_type_combo.setCurrentText(self.proxy_type_combo.currentText())
         if self.proxy_none_rb.isChecked():
-            self.parent.proxy_address_input.clear()  # Очищаем адрес при выборе "Не использовать прокси"
+            self.parent.proxy_address_input.clear()
         else:
             self.parent.proxy_address_input.setText(self.proxy_address_input.text())
-        self.parent.set_proxy_enabled(self.proxy_use_rb.isChecked())
 
     def on_accept(self):
         if self.proxy_use_rb.isChecked() and not self.proxy_address_input.text().strip():
@@ -418,7 +473,6 @@ class ProxySettingsDialog(QDialog):
         self.accept()
 
 class CookiesSettingsDialog(QDialog):
-    """Диалоговое окно для настроек cookies."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Настройки cookies")
@@ -439,7 +493,6 @@ class CookiesSettingsDialog(QDialog):
         self.cookies_browser_rb.setToolTip("Извлечь cookies из браузера")
         self.cookies_browser_rb.setChecked(self.parent.cookies_browser_rb.isChecked())
 
-        # Группируем радиокнопки для взаимоисключения
         self.cookies_button_group = QButtonGroup()
         self.cookies_button_group.addButton(self.cookies_none_rb)
         self.cookies_button_group.addButton(self.cookies_file_rb)
@@ -553,7 +606,7 @@ class DownloadThread(QThread):
     def run(self):
         try:
             cmd = [ConfigManager.get_ytdlp_path(), "--config-location", ConfigManager.CONFIG_FILE, self.url]
-            self.add_to_buffer(f"Запуск команды: {' '.join(cmd)}\n")
+            ConfigManager.log_download(f"Запуск команды: {' '.join(cmd)}")
 
             self.process = subprocess.Popen(
                 cmd,
@@ -653,6 +706,8 @@ class YTDLPGUI(QMainWindow):
         self.browser_combo.addItems(SUPPORTED_BROWSERS)
         self.browser_profile_input = QLineEdit()
 
+        self.ffmpeg_location_input = QLineEdit()
+
     def update_console(self):
         if hasattr(self, 'thread') and self.thread and not self.thread.buffer_lock:
             self.thread.buffer_lock = True
@@ -701,13 +756,13 @@ class YTDLPGUI(QMainWindow):
         else:
             self.status_bar.showMessage(f"Ошибка загрузки: {message}", 5000)
 
-    def check_for_updates(self):
+    def check_for_ytdlp_updates(self):
         current_version = ConfigManager.get_ytdlp_version()
         if not current_version:
             self.status_bar.showMessage("Не удалось определить текущую версию yt-dlp", 5000)
             return
 
-        self.status_bar.showMessage("Проверка обновлений...", 3000)
+        self.status_bar.showMessage("Проверка обновлений yt-dlp...", 3000)
 
         self.update_checker = UpdateChecker()
         self.update_checker.finished.connect(
@@ -736,6 +791,170 @@ class YTDLPGUI(QMainWindow):
         else:
             self.status_bar.showMessage(f"Установлена последняя версия yt-dlp: {current_version}", 5000)
 
+    def check_ffmpeg_availability(self):
+        if ConfigManager.check_ffmpeg_exists():
+            self.status_bar.showMessage("FFmpeg найден в системе", 5000)
+        else:
+            self.status_bar.showMessage("FFmpeg не найден. Укажите путь в 'Инструменты -> Указать FFmpeg' или установите FFmpeg", 5000)
+
+    def specify_ffmpeg_location(self):
+        folder = QFileDialog.getExistingDirectory(
+            self, "Выберите папку с бинарниками FFmpeg", self.ffmpeg_location_input.text()
+        )
+        if folder:
+            self.ffmpeg_location_input.setText(folder)
+            self.save_config()
+            self.status_bar.showMessage(f"Путь к FFmpeg установлен: {folder}", 5000)
+            if ConfigManager.check_ffmpeg_exists():
+                self.status_bar.showMessage("FFmpeg успешно проверен", 5000)
+            else:
+                self.status_bar.showMessage("FFmpeg не найден в указанной папке", 5000)
+
+    def install_ffmpeg(self):
+        reply = QMessageBox.question(
+            self,
+            "Установка FFmpeg",
+            "Скачать и установить FFmpeg из репозитория yt-dlp/FFmpeg-Builds?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                headers = {"User-Agent": USER_AGENT}
+                response = requests.get(FFMPEG_RELEASES_URL, headers=headers)
+                response.raise_for_status()
+
+                release_info = response.json()
+                download_url = None
+                asset_name = None
+
+                if os.name == 'nt':
+                    target = "ffmpeg-master-latest-win64-gpl.zip"
+                elif sys.platform == 'darwin':
+                    target = "ffmpeg-master-latest-macos64-gpl.zip"
+                else:
+                    target = "ffmpeg-master-latest-linux64-gpl.tar.xz"
+
+                for asset in release_info['assets']:
+                    if asset['name'] == target:
+                        download_url = asset['browser_download_url']
+                        asset_name = asset['name']
+                        break
+
+                if not download_url:
+                    self.status_bar.showMessage(f"Не удалось найти сборку FFmpeg ({target})", 5000)
+                    return
+
+                self.status_bar.showMessage(f"Скачивание {asset_name}...", 3000)
+                self.download_and_install_ffmpeg(download_url)
+
+            except Exception as e:
+                self.status_bar.showMessage(f"Ошибка получения сборки FFmpeg: {str(e)}", 5000)
+
+    def download_and_install_ffmpeg(self, download_url):
+        temp_dir = tempfile.mkdtemp()
+        archive_ext = '.zip' if os.name == 'nt' or sys.platform == 'darwin' else '.tar.xz'
+        archive_path = os.path.join(temp_dir, f"ffmpeg{archive_ext}")
+
+        progress_dialog = QProgressDialog("Загрузка FFmpeg...", "Отмена", 0, 100, self)
+        progress_dialog.setWindowTitle("Загрузка FFmpeg")
+        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        progress_dialog.setAutoClose(True)
+
+        downloader = DownloaderThread(download_url, archive_path)
+        downloader.progress.connect(progress_dialog.setValue)
+        downloader.finished.connect(
+            lambda success, msg: self.on_ffmpeg_download_finished(success, msg, progress_dialog, archive_path, temp_dir)
+        )
+        progress_dialog.canceled.connect(downloader.stop)
+        downloader.start()
+
+        progress_dialog.exec()
+
+    def on_ffmpeg_download_finished(self, success, message, progress_dialog, archive_path, temp_dir):
+        progress_dialog.close()
+
+        if not success:
+            self.status_bar.showMessage(f"Ошибка загрузки FFmpeg: {message}", 5000)
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return
+
+        archive_size_mb = os.path.getsize(archive_path) / (1024 * 1024)
+        if archive_size_mb < 10:
+            self.status_bar.showMessage(f"Скачанный архив слишком маленький ({archive_size_mb:.2f} МБ). Возможно, он поврежден.", 5000)
+            ConfigManager.log_download(f"Скачанный архив слишком маленький ({archive_size_mb:.2f} МБ). Возможно, он поврежден.", False)
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return
+
+        try:
+            extract_dir = os.path.join(temp_dir, "extracted")
+            os.makedirs(extract_dir, exist_ok=True)
+
+            if archive_path.endswith('.zip'):
+                with zipfile.ZipFile(archive_path, 'r') as zip_ref:
+                    zip_ref.extractall(extract_dir)
+            else:
+                with tarfile.open(archive_path, 'r:xz') as tar_ref:
+                    tar_ref.extractall(extract_dir)
+
+            script_dir = os.path.dirname(os.path.abspath(__file__)) if not hasattr(sys, 'frozen') else os.path.dirname(sys.executable)
+            ffmpeg_dir = os.path.join(script_dir, "ffmpeg")
+            if not os.access(script_dir, os.W_OK):
+                self.status_bar.showMessage("Нет прав на запись в директорию скрипта. Укажите другой путь для FFmpeg.", 5000)
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return
+
+            os.makedirs(ffmpeg_dir, exist_ok=True)
+
+            ffmpeg_files = ['ffmpeg', 'ffprobe']
+            if os.name == 'nt':
+                ffmpeg_files = ['ffmpeg.exe', 'ffprobe.exe']
+
+            found_files = []
+            for root, _, files in os.walk(extract_dir):
+                for file in files:
+                    if file in ffmpeg_files:
+                        file_path = os.path.join(root, file)
+                        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+                        ConfigManager.log_download(f"Найден {file} по пути {file_path}, размер: {file_size_mb:.2f} MB")
+                        if file_size_mb < 10:
+                            self.status_bar.showMessage(f"Файл {file} слишком маленький ({file_size_mb:.2f} МБ). Возможно, архив поврежден.", 5000)
+                            ConfigManager.log_download(f"Файл {file} слишком маленький ({file_size_mb:.2f} МБ). Возможно, архив поврежден.", False)
+                            shutil.rmtree(temp_dir, ignore_errors=True)
+                            return
+                        found_files.append(file_path)
+
+            if len(found_files) < 2:
+                self.status_bar.showMessage("Не удалось найти ffmpeg и/или ffprobe в архиве", 5000)
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return
+
+            for src_path in found_files:
+                dest_path = os.path.join(ffmpeg_dir, os.path.basename(src_path))
+                shutil.move(src_path, dest_path)
+                if os.name != 'nt':
+                    os.chmod(dest_path, 0o755)
+                final_size_mb = os.path.getsize(dest_path) / (1024 * 1024)
+                ConfigManager.log_download(f"Перемещен {os.path.basename(src_path)} в {dest_path}, размер: {final_size_mb:.2f} MB")
+
+            self.ffmpeg_location_input.setText(ffmpeg_dir)
+            self.save_config()
+
+            if ConfigManager.check_ffmpeg_exists():
+                version = ConfigManager.get_ffmpeg_version()
+                if version:
+                    self.status_bar.showMessage(f"FFmpeg успешно проверен (версия: {version})", 5000)
+                else:
+                    self.status_bar.showMessage("FFmpeg установлен, но версия не определена", 5000)
+            else:
+                self.status_bar.showMessage("Установленный FFmpeg недействителен. Укажите другой путь.", 5000)
+
+        except Exception as e:
+            self.status_bar.showMessage(f"Ошибка установки FFmpeg: {str(e)}", 5000)
+            ConfigManager.log_download(f"Ошибка установки FFmpeg: {str(e)}", False)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def setup_ui(self):
         self.setWindowTitle("yt-dlp GUI")
         self.setMinimumSize(700, 500)
@@ -749,7 +968,6 @@ class YTDLPGUI(QMainWindow):
     def create_menus(self):
         menubar = self.menuBar()
 
-        # Меню Файл
         file_menu = menubar.addMenu("Файл")
         open_log_action = QAction("Открыть лог", self)
         open_log_action.triggered.connect(self.open_log_file)
@@ -769,7 +987,6 @@ class YTDLPGUI(QMainWindow):
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
 
-        # Меню Правка
         edit_menu = menubar.addMenu("Правка")
         copy_cmd_action = QAction("Копировать команду", self)
         copy_cmd_action.triggered.connect(self.copy_command_line)
@@ -779,7 +996,6 @@ class YTDLPGUI(QMainWindow):
         reset_action.triggered.connect(self.reset_settings)
         edit_menu.addAction(reset_action)
 
-        # Меню Параметры
         params_menu = menubar.addMenu("Параметры")
         
         output_action = QAction("Настройки вывода...", self)
@@ -794,7 +1010,6 @@ class YTDLPGUI(QMainWindow):
         cookies_action.triggered.connect(self.show_cookies_settings)
         params_menu.addAction(cookies_action)
 
-        # Дополнительные опции (сохраняем текущую реализацию)
         advanced_menu = params_menu.addMenu("Дополнительно")
         
         self.no_overwrite_action = QAction("Не перезаписывать файлы", advanced_menu, checkable=True)
@@ -817,13 +1032,24 @@ class YTDLPGUI(QMainWindow):
         self.thumbnail_action.toggled.connect(lambda checked: self.update_check_state(self.thumbnail_check, checked))
         advanced_menu.addAction(self.thumbnail_action)
 
-        # Меню Инструменты
         tools_menu = menubar.addMenu("Инструменты")
-        update_action = QAction("Проверить обновления", self)
-        update_action.triggered.connect(self.check_for_updates)
-        tools_menu.addAction(update_action)
+        
+        check_ytdlp_update_action = QAction("Проверить обновление yt-dlp", self)
+        check_ytdlp_update_action.triggered.connect(self.check_for_ytdlp_updates)
+        tools_menu.addAction(check_ytdlp_update_action)
 
-        # Меню Помощь
+        check_ffmpeg_action = QAction("Проверить наличие ffmpeg в системе", self)
+        check_ffmpeg_action.triggered.connect(self.check_ffmpeg_availability)
+        tools_menu.addAction(check_ffmpeg_action)
+
+        specify_ffmpeg_action = QAction("Указать ffmpeg", self)
+        specify_ffmpeg_action.triggered.connect(self.specify_ffmpeg_location)
+        tools_menu.addAction(specify_ffmpeg_action)
+
+        install_ffmpeg_action = QAction("Установить ffmpeg", self)
+        install_ffmpeg_action.triggered.connect(self.install_ffmpeg)
+        tools_menu.addAction(install_ffmpeg_action)
+
         help_menu = menubar.addMenu("Помощь")
         docs_action = QAction("Документация", self)
         docs_action.triggered.connect(self.open_documentation)
@@ -1040,6 +1266,7 @@ class YTDLPGUI(QMainWindow):
             self.thumbnail_check.setChecked(False)
             self.proxy_none_rb.setChecked(True)
             self.cookies_none_rb.setChecked(True)
+            self.ffmpeg_location_input.clear()
         else:
             params = ConfigManager.parse_config(config_text)
             self.template_input.setText(params['output'])
@@ -1077,8 +1304,8 @@ class YTDLPGUI(QMainWindow):
             self.sponsorblock_check.setChecked(params['sponsorblock_remove'])
             self.metadata_check.setChecked(params['add_metadata'])
             self.thumbnail_check.setChecked(params['embed_thumbnail'])
+            self.ffmpeg_location_input.setText(params['ffmpeg_location'] or "")
 
-        # Синхронизация действий меню с чекбоксами
         self.no_overwrite_action.setChecked(self.no_overwrite_check.isChecked())
         self.sponsorblock_action.setChecked(self.sponsorblock_check.isChecked())
         self.metadata_action.setChecked(self.metadata_check.isChecked())
@@ -1113,6 +1340,9 @@ class YTDLPGUI(QMainWindow):
         if self.thumbnail_check.isChecked():
             config_lines.append('--embed-thumbnail')
 
+        if self.ffmpeg_location_input.text().strip():
+            config_lines.append(f'--ffmpeg-location "{self.ffmpeg_location_input.text().strip()}"')
+
         config_text = "\n".join(config_lines)
         if ConfigManager.save_config(config_text):
             self.status_bar.showMessage("Конфигурация успешно сохранена", 3000)
@@ -1122,12 +1352,10 @@ class YTDLPGUI(QMainWindow):
             return False
 
     def set_proxy_enabled(self, enabled):
-        """Включает или отключает элементы управления прокси."""
         self.proxy_type_combo.setEnabled(enabled)
         self.proxy_address_input.setEnabled(enabled)
 
     def set_cookies_enabled(self, enabled, mode=None):
-        """Включает или отключает элементы управления cookies."""
         self.cookies_file_input.setEnabled(enabled and mode == 'file')
         self.browser_combo.setEnabled(enabled and mode == 'browser')
         self.browser_profile_input.setEnabled(enabled and mode == 'browser')
