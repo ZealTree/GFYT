@@ -52,13 +52,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller
           pip install -r requirements.txt
+        shell: bash
 
-      # Установка системных зависимостей для Linux (только необходимые)
+      # Установка системных зависимостей для Linux
       - name: Install system dependencies (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libopengl0 libgl1-mesa-dev
+        shell: bash
+
+      # Установка jq для Windows
+      - name: Install jq (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install jq
+        shell: powershell
 
       # Сборка с PyInstaller
       - name: Build with PyInstaller
@@ -67,15 +76,17 @@ jobs:
             echo "Ошибка: Файл assets/icon.ico не найден"
             exit 1
           fi
+          SEPARATOR="${{ matrix.os == 'windows-latest' && ';' || ':' }}"
+          echo "Using separator: $SEPARATOR"
           pyinstaller --name gui_for_yt-dlp_v${{ env.VERSION }}_${{ matrix.os_suffix }} \
                       --onefile \
                       --icon assets/icon.ico \
-                      --add-data "assets/icon.ico${{ matrix.os == 'windows-latest' && ';' || ':' }}assets" \
-                      --add-data "version.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}." \
+                      --add-data "assets/icon.ico${SEPARATOR}assets" \
+                      --add-data "version.txt${SEPARATOR}." \
                       --noconfirm \
                       --noconsole \
                       gui_yt-dlp.py
-        shell: bash '
+        shell: bash
 
       # Загрузка артефакта
       - name: Upload artifact
