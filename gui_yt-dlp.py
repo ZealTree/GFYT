@@ -1224,9 +1224,25 @@ class YTDLPGUI(QMainWindow):
 
     def setup_icons(self):
         try:
-            self.setWindowIcon(QIcon("assets/icon.ico"))
-        except:
-            pass
+            import os
+            import sys
+            from PyQt6.QtGui import QIcon
+            
+            # Определить базовый путь в зависимости от режима запуска
+            if hasattr(sys, '_MEIPASS'):
+                # Для собранного приложения (PyInstaller)
+                base_path = sys._MEIPASS
+            else:
+                # Для запуска из исходного кода
+                base_path = os.path.dirname(os.path.abspath(__file__))
+            
+            icon_path = os.path.join(base_path, "assets", "icon.ico")
+            if not os.path.exists(icon_path):
+                print(f"Иконка не найдена по пути: {icon_path}")
+                return
+            self.setWindowIcon(QIcon(icon_path))
+        except Exception as e:
+            print(f"Ошибка загрузки иконки: {e}")
 
     def paste_url(self):
         clipboard = QGuiApplication.clipboard()

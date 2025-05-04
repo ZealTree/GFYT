@@ -76,8 +76,17 @@ jobs:
           & "$UPX_DIR\upx-$UPX_VERSION-win64\upx.exe" --version
         shell: powershell
 
+      - name: Check assets directory
+        run: dir assets
+        shell: powershell
+        if: matrix.os == 'windows-latest'
+
       - name: Build with PyInstaller
         run: |
+          if [ ! -f "assets/icon.ico" ]; then
+            echo "Ошибка: Файл assets/icon.ico не найден"
+            exit 1
+          fi
           pyinstaller --name gui_for_yt-dlp_v${{ env.VERSION }}_${{ matrix.os_suffix }} \
                       --onefile \
                       --icon assets/icon.ico \
@@ -85,7 +94,6 @@ jobs:
                       --add-data "version.txt${{ matrix.os == 'windows-latest' && ';' || ':' }}." \
                       --noconfirm \
                       --noconsole \
-                      --upx-dir ${{ matrix.os == 'windows-latest' && 'C:\upx\upx-4.2.4-win64' || '/usr/bin' }} \
                       gui_yt-dlp.py
         shell: bash
 
