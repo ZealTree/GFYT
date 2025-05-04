@@ -26,16 +26,19 @@ jobs:
             os_suffix: windows
 
     steps:
+      # Клонирование репозитория
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # Установка Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
+      # Чтение версии из version.txt
       - name: Read version
         id: version
         run: |
@@ -43,44 +46,21 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_ENV
         shell: bash
 
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
+      # Установка зависимостей
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
           pip install -r requirements.txt
 
+      # Установка системных зависимостей для Linux (только необходимые)
       - name: Install system dependencies (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libegl1 libopengl0 libgl1-mesa-dev upx-ucl
+          sudo apt-get install -y libegl1 libopengl0 libgl1-mesa-dev
 
-      - name: Install UPX (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          $UPX_VERSION = "4.2.4"
-          $UPX_URL = "https://github.com/upx/upx/releases/download/v$UPX_VERSION/upx-$UPX_VERSION-win64.zip"
-          $UPX_DIR = "C:\upx"
-          Invoke-WebRequest -Uri $UPX_URL -OutFile "upx.zip"
-          Expand-Archive -Path "upx.zip" -DestinationPath $UPX_DIR
-          $env:PATH += ";$UPX_DIR\upx-$UPX_VERSION-win64"
-          echo "PATH=$env:PATH" >> $env:GITHUB_ENV
-          & "$UPX_DIR\upx-$UPX_VERSION-win64\upx.exe" --version
-        shell: powershell
-
-      - name: Check assets directory
-        run: dir assets
-        shell: powershell
-        if: matrix.os == 'windows-latest'
-
+      # Сборка с PyInstaller
       - name: Build with PyInstaller
         run: |
           if [ ! -f "assets/icon.ico" ]; then
@@ -95,27 +75,32 @@ jobs:
                       --noconfirm \
                       --noconsole \
                       gui_yt-dlp.py
-        shell: bash
+        shell: bash '
 
+      # Загрузка артефакта
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: gui_for_yt-dlp_v${{ env.VERSION }}_${{ matrix.os_suffix }}
           path: dist/gui_for_yt-dlp_v${{ env.VERSION }}_${{ matrix.os_suffix }}*
 
+      # Проверка существования релиза через GitHub API
       - name: Check if release exists
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         id: check_release
         run: |
           TAG="v${{ env.VERSION }}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Release with tag $TAG already exists, skipping release creation"
+          RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                          https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG)
+          if [[ $(echo "$RESPONSE" | jq -r '.id') != "null" ]]; then
+            echo "Release with tag $TAG already exists"
             echo "release_exists=true" >> $GITHUB_ENV
           else
             echo "release_exists=false" >> $GITHUB_ENV
           fi
         shell: bash
 
+      # Создание релиза
       - name: Create Release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.release_exists == 'false'
         uses: softprops/action-gh-release@v2
@@ -127,8 +112,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Обновление версии (только для Windows и после успешного релиза)
       - name: Bump version
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.os == 'windows-latest'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.os == 'windows-latest' && env.release_exists == 'false'
         run: |
           git pull --rebase origin main
           python bump_version.py
